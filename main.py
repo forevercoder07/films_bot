@@ -37,7 +37,6 @@ async def on_shutdown(app: web.Application):
         await db_pool.close()
     logging.info("[INFO] Bot closed")
 
-# ========== /START ==========
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await add_user(msg.from_user.id)
@@ -194,10 +193,12 @@ async def back(msg: Message):
 async def start_webhook():
     logging.basicConfig(level=logging.INFO)
     await init_db()
+
+    # Webhookni shu yerda o‘rnatamiz
     await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"[INFO] Webhook set: {WEBHOOK_URL}")
 
     app = web.Application()
-    app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
     # Aiogram 3.x da webhookni ulash
@@ -208,5 +209,7 @@ async def start_webhook():
 if __name__ == "__main__":
     app = asyncio.get_event_loop().run_until_complete(start_webhook())
     web.run_app(app, port=PORT)
+
+
 
 
