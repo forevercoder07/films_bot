@@ -187,12 +187,31 @@ async def back(msg: Message):
 
 # ========== WEBHOOK APP ==========
 async def start_webhook():
+    logging.basicConfig(level=logging.INFO)
+
+    # DB ulanishini yaratamiz
+    await init_db()
+
+    # Webhook URL ni botga o‘rnatamiz
+    await bot.set_webhook(f"{WEBHOOK_HOST}{WEBHOOK_PATH}")
+
+    # aiohttp app yaratamiz
     app = web.Application()
-    SimpleRequestHandler(dp, bot).register(app, path=WEBHOOK_PATH)
-    app.on_startup.append(on_startup)
+
+    # Aiogram dispatcher’ni aiohttp serverga ulash
+    app.router.add_post(WEBHOOK_PATH, dp.start_webhook)
+
+    # Shutdown event
+    async def on_shutdown(app: web.Application):
+        await bot.delete_webhook()
+        await bot.session.close()
+        await db_pool.close()
+
     app.on_shutdown.append(on_shutdown)
-    print(f"[INFO] Running app on port {PORT}, path={WEBHOOK_PATH}")
+
+    # Serverni ishga tushiramiz
     web.run_app(app, port=PORT)
 
 if __name__ == "__main__":
-    asyncio.run(start_webhook())
+    app = asyncio.run(start_webhook())
+    web.run_app(app, port=PORT)         # event loopni web.run_app o‘zi boshqaradi
