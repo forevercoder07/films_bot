@@ -1,12 +1,10 @@
 import os
-import asyncio
 import logging
+import asyncio
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.types import Message, CallbackQuery
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 from aiohttp import web
 
 from db import *
@@ -25,17 +23,17 @@ PORT = int(os.getenv("PORT", 8443))
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# ========== STARTUP / SHUTDOWN ==========
-async def on_startup(app):
+async def on_startup(app: web.Application):
     await init_db()
     await bot.set_webhook(WEBHOOK_URL)
-    print(f"[INFO] Webhook set: {WEBHOOK_URL}")
+    logging.info(f"[INFO] Webhook set: {WEBHOOK_URL}")
 
-async def on_shutdown(app):
+async def on_shutdown(app: web.Application):
+    await bot.delete_webhook()
     await bot.session.close()
-    print("[INFO] Bot closed")
+    await db_pool.close()
+    logging.info("[INFO] Bot closed")
 
-# ========== /START ==========
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await add_user(msg.from_user.id)
@@ -44,7 +42,6 @@ async def start(msg: Message):
     else:
         await msg.answer("🎬 Kino botga xush kelibsiz", reply_markup=user_kb)
 
-# ========== USER PANEL ==========
 @dp.message(F.text == "🎬 Kino topish")
 async def ask_code(msg: Message):
     await msg.answer("🎞 Kino kodini kiriting:")
@@ -69,7 +66,6 @@ async def get_film_by_code(msg: Message):
 @dp.callback_query(F.data.startswith("part_"))
 async def send_part(call: CallbackQuery):
     part_id = int(call.data.split("_")[1])
-    # partni olish
     parts = await get_parts('')
     part = next((p for p in parts if p['id'] == part_id), None)
     if not part:
@@ -77,7 +73,10 @@ async def send_part(call: CallbackQuery):
         await call.answer()
         return
     await increase_views(part_id)
-    await call.message.answer_video(part['video'], caption=f"{part['title']}\n{part['description']}\n👁 {part['views']+1} marta")
+    await call.message.answer_video(
+        part['video'],
+        caption=f"{part['title']}\n{part['description']}\n👁 {part['views']+1} marta"
+    )
     await call.answer()
 
 @dp.message(F.text == "📊 Statistikalar")
@@ -91,7 +90,6 @@ async def contact_admin(msg: Message):
     await bot.send_message(ADMIN_ID, f"📩 Foydalanuvchi {msg.from_user.id} murojaat qilmoqda")
     await msg.answer("✅ Sizning xabaringiz adminga yuborildi")
 
-# ========== ADMIN PANEL ==========
 @dp.message(F.text == "➕ Kino qo'shish")
 async def add_film_start(msg: Message, state: FSMContext):
     if msg.from_user.id != ADMIN_ID: return
@@ -179,7 +177,8 @@ async def broadcast_send(msg: Message, state: FSMContext):
     for u in users:
         try:
             await bot.send_message(u['user_id'], msg.text)
-        except: continue
+        except:
+            continue
     await msg.answer("✅ Xabar barcha userlarga yuborildi")
     await state.clear()
 
@@ -187,33 +186,16 @@ async def broadcast_send(msg: Message, state: FSMContext):
 async def back(msg: Message):
     await start(msg)
 
-# ========== WEBHOOK APP ==========
 async def start_webhook():
     logging.basicConfig(level=logging.INFO)
-
-    # DB ulanishini yaratamiz
     await init_db()
-
-    # Webhook URL ni botga o‘rnatamiz
-    await bot.set_webhook(f"{WEBHOOK_HOST}{WEBHOOK_PATH}")
-
-    # aiohttp app yaratamiz
+    await bot.set_webhook(WEBHOOK_URL)
     app = web.Application()
-
-    # Aiogram dispatcher’ni aiohttp serverga ulash
-    app.router.add_post(WEBHOOK_PATH, dp.start_webhook)
-
-    # Shutdown event
-    async def on_shutdown(app: web.Application):
-        await bot.delete_webhook()
-        await bot.session.close()
-        await db_pool.close()
-
+    app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-
-    # Serverni ishga tushiramiz
-    web.run_app(app, port=PORT)
+    app.router.add_post(WEBHOOK_PATH, dp.handler())
+    return app
 
 if __name__ == "__main__":
     app = asyncio.run(start_webhook())
-    web.run_app(app, port=PORT)         # event loopni web.run_app o‘zi boshqaradi
+    web.run_app(app, port=PORT)
