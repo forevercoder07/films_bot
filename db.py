@@ -1,99 +1,85 @@
 import asyncpg
 import os
+from dotenv import load_dotenv
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = int(os.getenv("DB_PORT", 5432))
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+load_dotenv()
 
-async def get_conn():
-    return await asyncpg.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME
-    )
+DB_URL = os.getenv("DATABASE_URL")  # Masalan: postgres://user:password@localhost:5432/dbname
 
-# ================= INIT =================
+db_pool = None
+
 async def init_db():
-    conn = await get_conn()
-    await conn.execute("""
+    global db_pool
+    db_pool = await asyncpg.create_pool(dsn=DB_URL)
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT UNIQUE
+        );
         CREATE TABLE IF NOT EXISTS films (
             id SERIAL PRIMARY KEY,
             code TEXT UNIQUE,
             title TEXT
         );
-    """)
-    await conn.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id SERIAL PRIMARY KEY,
-            movie_code TEXT,
+            film_code TEXT,
             title TEXT,
             description TEXT,
             video TEXT,
-            views INTEGER DEFAULT 0
+            views INT DEFAULT 0
         );
-    """)
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id BIGINT PRIMARY KEY
-        );
-    """)
-    await conn.close()
+        """)
 
-# ================= USERS =================
+async def get_conn():
+    return db_pool
+
 async def add_user(user_id: int):
-    conn = await get_conn()
-    await conn.execute("INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
-    await conn.close()
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+        INSERT INTO users (user_id) VALUES ($1)
+        ON CONFLICT (user_id) DO NOTHING
+        """, user_id)
 
 async def user_count():
-    conn = await get_conn()
-    count = await conn.fetchval("SELECT COUNT(*) FROM users")
-    await conn.close()
-    return count
+    async with db_pool.acquire() as conn:
+        return await conn.fetchval("SELECT COUNT(*) FROM users")
 
-# ================= FILMS =================
-async def add_film(code, title):
-    conn = await get_conn()
-    await conn.execute("INSERT INTO films (code, title) VALUES ($1, $2)", code, title)
-    await conn.close()
+async def add_film(code: str, title: str):
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+        INSERT INTO films (code, title) VALUES ($1, $2)
+        ON CONFLICT (code) DO NOTHING
+        """, code, title)
 
-async def delete_film(code):
-    conn = await get_conn()
-    await conn.execute("DELETE FROM films WHERE code=$1", code)
-    await conn.close()
-
-async def get_film(code):
-    conn = await get_conn()
-    film = await conn.fetchrow("SELECT title FROM films WHERE code=$1", code)
-    await conn.close()
-    return film
+async def delete_film(code: str):
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM films WHERE code = $1", code)
+        await conn.execute("DELETE FROM parts WHERE film_code = $1", code)
 
 async def film_count():
-    conn = await get_conn()
-    count = await conn.fetchval("SELECT COUNT(*) FROM films")
-    await conn.close()
-    return count
+    async with db_pool.acquire() as conn:
+        return await conn.fetchval("SELECT COUNT(*) FROM films")
 
-# ================= PARTS =================
-async def add_part(movie_code, title, description, video):
-    conn = await get_conn()
-    await conn.execute(
-        "INSERT INTO parts (movie_code, title, description, video) VALUES ($1, $2, $3, $4)",
-        movie_code, title, description, video
-    )
-    await conn.close()
+async def get_film(code: str):
+    async with db_pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM films WHERE code = $1", code)
 
-async def get_parts(movie_code):
-    conn = await get_conn()
-    parts = await conn.fetch("SELECT id, title, description, video, views FROM parts WHERE movie_code=$1 ORDER BY id", movie_code)
-    await conn.close()
-    return parts
+async def add_part(film_code: str, title: str, description: str, video: str):
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+        INSERT INTO parts (film_code, title, description, video) VALUES ($1, $2, $3, $4)
+        """, film_code, title, description, video)
 
-async def increase_views(part_id):
-    conn = await get_conn()
-    await conn.execute("UPDATE parts SET views = views + 1 WHERE id=$1", part_id)
-    await conn.close()
+async def get_parts(film_code: str):
+    async with db_pool.acquire() as conn:
+        return await conn.fetch("SELECT * FROM parts WHERE film_code = $1", film_code)
+
+async def get_part_by_id(part_id: int):
+    async with db_pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM parts WHERE id = $1", part_id)
+
+async def increase_views(part_id: int):
+    async with db_pool.acquire() as conn:
+        await conn.execute("UPDATE parts SET views = views + 1 WHERE id = $1", part_id)
