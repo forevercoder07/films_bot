@@ -2,7 +2,7 @@ import os
 import logging
 import asyncio
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiohttp import web
@@ -20,9 +20,12 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 PORT = int(os.getenv("PORT", 8443))
 
-bot = Bot(BOT_TOKEN)
+logging.basicConfig(level=logging.INFO)
+
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# ----------------- Startup & Shutdown -----------------
 async def on_startup(app: web.Application):
     await init_db()
     await bot.set_webhook(WEBHOOK_URL)
@@ -34,6 +37,7 @@ async def on_shutdown(app: web.Application):
     await db_pool.close()
     logging.info("[INFO] Bot closed")
 
+# ----------------- Handlers -----------------
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await add_user(msg.from_user.id)
@@ -66,8 +70,7 @@ async def get_film_by_code(msg: Message):
 @dp.callback_query(F.data.startswith("part_"))
 async def send_part(call: CallbackQuery):
     part_id = int(call.data.split("_")[1])
-    parts = await get_parts('')
-    part = next((p for p in parts if p['id'] == part_id), None)
+    part = await get_part_by_id(part_id)
     if not part:
         await call.message.answer("❌ Qism topilmadi")
         await call.answer()
@@ -186,16 +189,25 @@ async def broadcast_send(msg: Message, state: FSMContext):
 async def back(msg: Message):
     await start(msg)
 
+# ----------------- Webhook -----------------
+async def handle_update(request: web.Request):
+    try:
+        data = await request.json()
+        update = types.Update(**data)
+        await dp.process_update(update)
+        return web.Response(text="OK")
+    except Exception as e:
+        logging.exception(f"Update processing failed: {e}")
+        return web.Response(status=500, text="Error")
+
 async def start_webhook():
-    logging.basicConfig(level=logging.INFO)
-    await init_db()
-    await bot.set_webhook(WEBHOOK_URL)
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    app.router.add_post(WEBHOOK_PATH, dp.handler())
+    app.router.add_post(WEBHOOK_PATH, handle_update)
     return app
 
 if __name__ == "__main__":
+    logging.info("Bot ishga tushmoqda...")
     app = asyncio.run(start_webhook())
     web.run_app(app, port=PORT)
