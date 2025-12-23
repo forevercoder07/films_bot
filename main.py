@@ -190,15 +190,23 @@ async def back(msg: Message):
     await start(msg)
 
 # ========== WEBHOOK APP ==========
+
 async def start_webhook():
     logging.basicConfig(level=logging.INFO)
+    await init_db()
+    await bot.set_webhook(WEBHOOK_URL)
+
     app = web.Application()
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    app.router.add_post(WEBHOOK_PATH, dp.handler(bot))
+
+    # Aiogram 3.x da webhookni ulash
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+
     return app
 
 if __name__ == "__main__":
     app = asyncio.get_event_loop().run_until_complete(start_webhook())
     web.run_app(app, port=PORT)
+
 
