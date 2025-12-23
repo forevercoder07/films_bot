@@ -1,10 +1,10 @@
-import os
-import logging
-import asyncio
+import asyncio, os
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 from aiohttp import web
 
 from db import *
@@ -20,24 +20,20 @@ WEBHOOK_PATH = os.getenv("WEBHOOK_PATH")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 PORT = int(os.getenv("PORT", 8443))
 
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
-# ----------------- Startup & Shutdown -----------------
-async def on_startup(app: web.Application):
+# ========== STARTUP / SHUTDOWN ==========
+async def on_startup(app):
     await init_db()
     await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"[INFO] Webhook set: {WEBHOOK_URL}")
+    print(f"[INFO] Webhook set: {WEBHOOK_URL}")
 
-async def on_shutdown(app: web.Application):
-    await bot.delete_webhook()
+async def on_shutdown(app):
     await bot.session.close()
-    await db_pool.close()
-    logging.info("[INFO] Bot closed")
+    print("[INFO] Bot closed")
 
-# ----------------- Handlers -----------------
+# ========== /START ==========
 @dp.message(F.text == "/start")
 async def start(msg: Message):
     await add_user(msg.from_user.id)
@@ -46,6 +42,7 @@ async def start(msg: Message):
     else:
         await msg.answer("🎬 Kino botga xush kelibsiz", reply_markup=user_kb)
 
+# ========== USER PANEL ==========
 @dp.message(F.text == "🎬 Kino topish")
 async def ask_code(msg: Message):
     await msg.answer("🎞 Kino kodini kiriting:")
@@ -70,16 +67,15 @@ async def get_film_by_code(msg: Message):
 @dp.callback_query(F.data.startswith("part_"))
 async def send_part(call: CallbackQuery):
     part_id = int(call.data.split("_")[1])
-    part = await get_part_by_id(part_id)
+    # partni olish
+    parts = await get_parts('')
+    part = next((p for p in parts if p['id'] == part_id), None)
     if not part:
         await call.message.answer("❌ Qism topilmadi")
         await call.answer()
         return
     await increase_views(part_id)
-    await call.message.answer_video(
-        part['video'],
-        caption=f"{part['title']}\n{part['description']}\n👁 {part['views']+1} marta"
-    )
+    await call.message.answer_video(part['video'], caption=f"{part['title']}\n{part['description']}\n👁 {part['views']+1} marta")
     await call.answer()
 
 @dp.message(F.text == "📊 Statistikalar")
@@ -93,6 +89,7 @@ async def contact_admin(msg: Message):
     await bot.send_message(ADMIN_ID, f"📩 Foydalanuvchi {msg.from_user.id} murojaat qilmoqda")
     await msg.answer("✅ Sizning xabaringiz adminga yuborildi")
 
+# ========== ADMIN PANEL ==========
 @dp.message(F.text == "➕ Kino qo'shish")
 async def add_film_start(msg: Message, state: FSMContext):
     if msg.from_user.id != ADMIN_ID: return
@@ -180,8 +177,7 @@ async def broadcast_send(msg: Message, state: FSMContext):
     for u in users:
         try:
             await bot.send_message(u['user_id'], msg.text)
-        except:
-            continue
+        except: continue
     await msg.answer("✅ Xabar barcha userlarga yuborildi")
     await state.clear()
 
@@ -189,25 +185,14 @@ async def broadcast_send(msg: Message, state: FSMContext):
 async def back(msg: Message):
     await start(msg)
 
-# ----------------- Webhook -----------------
-async def handle_update(request: web.Request):
-    try:
-        data = await request.json()
-        update = types.Update(**data)
-        await dp.process_update(update)
-        return web.Response(text="OK")
-    except Exception as e:
-        logging.exception(f"Update processing failed: {e}")
-        return web.Response(status=500, text="Error")
-
+# ========== WEBHOOK APP ==========
 async def start_webhook():
     app = web.Application()
+    SimpleRequestHandler(dp, bot).register(app, path=WEBHOOK_PATH)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    app.router.add_post(WEBHOOK_PATH, handle_update)
-    return app
+    print(f"[INFO] Running app on port {PORT}, path={WEBHOOK_PATH}")
+    web.run_app(app, port=PORT)
 
 if __name__ == "__main__":
-    logging.info("Bot ishga tushmoqda...")
-    app = asyncio.run(start_webhook())
-    web.run_app(app, port=PORT)
+    asyncio.run(start_webhook())
