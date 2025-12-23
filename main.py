@@ -24,14 +24,17 @@ bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
 
 # ========== STARTUP / SHUTDOWN ==========
-async def on_startup(app):
+async def on_startup(app: web.Application):
     await init_db()
     await bot.set_webhook(WEBHOOK_URL)
-    print(f"[INFO] Webhook set: {WEBHOOK_URL}")
+    logging.info(f"[INFO] Webhook set: {WEBHOOK_URL}")
 
-async def on_shutdown(app):
+async def on_shutdown(app: web.Application):
+    await bot.delete_webhook()
     await bot.session.close()
-    print("[INFO] Bot closed")
+    if db_pool:
+        await db_pool.close()
+    logging.info("[INFO] Bot closed")
 
 # ========== /START ==========
 @dp.message(F.text == "/start")
@@ -187,12 +190,14 @@ async def back(msg: Message):
 
 # ========== WEBHOOK APP ==========
 async def start_webhook():
+    logging.basicConfig(level=logging.INFO)
     app = web.Application()
-    SimpleRequestHandler(dp, bot).register(app, path=WEBHOOK_PATH)
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
-    print(f"[INFO] Running app on port {PORT}, path={WEBHOOK_PATH}")
-    web.run_app(app, port=PORT)
+    app.router.add_post(WEBHOOK_PATH, dp.handler(bot))
+    return app
 
 if __name__ == "__main__":
-    asyncio.run(start_webhook())
+    app = asyncio.get_event_loop().run_until_complete(start_webhook())
+    web.run_app(app, port=PORT)
+
