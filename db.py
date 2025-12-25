@@ -129,10 +129,10 @@ async def add_film(code: str, title: str, description: str = ""):
 async def get_film(code: str):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT code, title, description FROM films WHERE code=$1",
-            code
+            "SELECT code, title FROM films WHERE code=$1", code
         )
         return dict(row) if row else None
+
 
 async def list_films_paginated(page: int, page_size: int):
     offset = (page - 1) * page_size
