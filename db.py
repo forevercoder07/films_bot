@@ -1,71 +1,81 @@
-import aiosqlite
+import os
+import asyncpg
+from dotenv import load_dotenv
 
-DB_PATH = "films.db"
+load_dotenv()
 
-# ===== Database init =====
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_NAME = os.getenv("DB_NAME", "films_db")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+
+pool = None
+
+# -------------------------
+# Init DB
+# -------------------------
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Users jadvali — joined_at ustuni qo‘shilgan
-        await db.execute("""
+    global pool
+    pool = await asyncpg.create_pool(
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
+    )
+    async with pool.acquire() as conn:
+        # Users
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT UNIQUE,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-
-        # Films jadvali
-        await db.execute("""
+        # Films
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS films (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             code TEXT UNIQUE NOT NULL,
             title TEXT NOT NULL,
             description TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-
-        # Parts jadvali
-
-        await db.execute("""
+        # Parts
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS parts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             film_code TEXT NOT NULL,
             title TEXT,
             description TEXT,
             video TEXT,
-            views INTEGER DEFAULT 0,
-            FOREIGN KEY(film_code) REFERENCES films(code) ON DELETE CASCADE
+            views INTEGER DEFAULT 0
         )
         """)
-
-
-
-        # Channels jadvali
-        await db.execute("""
+        # Channels
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS channels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             id_or_username TEXT NOT NULL,
             title TEXT,
-            is_private INTEGER DEFAULT 0
+            is_private BOOLEAN DEFAULT FALSE
         )
         """)
-
-
-        # Admins jadvali
-        await db.execute("""
+        # Admins
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER UNIQUE,
+            id SERIAL PRIMARY KEY,
+            admin_id BIGINT UNIQUE,
             permissions TEXT
         )
         """)
-
-        # Broadcast jobs jadvali
-        await db.execute("""
+        # Broadcast jobs
+        await conn.execute("""
         CREATE TABLE IF NOT EXISTS broadcast_jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER,
+            id SERIAL PRIMARY KEY,
+            admin_id BIGINT,
             total_users INTEGER,
             sent INTEGER,
             failed INTEGER,
@@ -73,207 +83,133 @@ async def init_db():
         )
         """)
 
-        await db.commit()
-
-# ===== Users =====
+# -------------------------
+# Users
+# -------------------------
 async def add_user(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO users (user_id, joined_at) VALUES (?, CURRENT_TIMESTAMP)",
-            (user_id,)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING",
+            user_id
         )
-        await db.commit()
-
 
 async def user_exists(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
-        return await cur.fetchone() is not None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM users WHERE user_id=$1", user_id)
+        return row is not None
 
 async def get_all_user_ids():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT user_id FROM users")
-        rows = await cur.fetchall()
-        return [r[0] for r in rows]
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM users")
+        return [r["user_id"] for r in rows]
 
-async def get_all_admins():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT admin_id FROM admins")
-        rows = await cur.fetchall()
-        return [{"admin_id": r[0]} for r in rows]
-
-# ===== Films =====
+# -------------------------
+# Films
+# -------------------------
 async def add_film(code: str, title: str, description: str = ""):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO films (code, title, description) VALUES (?, ?, ?)",
-            (code, title, description)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO films (code, title, description) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            code, title, description
         )
-        await db.commit()
 
 async def get_film(code: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT code, title, description FROM films WHERE code = ?", (code,))
-        row = await cur.fetchone()
-        return {"code": row[0], "title": row[1], "description": row[2]} if row else None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT code, title, description FROM films WHERE code=$1", code)
+        return dict(row) if row else None
 
 async def list_films_paginated(page: int, page_size: int):
     offset = (page - 1) * page_size
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT code, title FROM films ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
-        items = await cur.fetchall()
-        cur2 = await db.execute("SELECT COUNT(*) FROM films")
-        total = (await cur2.fetchone())[0]
-        return [{"code": r[0], "title": r[1]} for r in items], total
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT code, title FROM films ORDER BY id DESC LIMIT $1 OFFSET $2", page_size, offset)
+        total = await conn.fetchval("SELECT COUNT(*) FROM films")
+        return [dict(r) for r in rows], total
+
+async def delete_film(code: str = None, part_id: int = None):
+    async with pool.acquire() as conn:
+        if code:
+            await conn.execute("DELETE FROM films WHERE code=$1", code)
+            await conn.execute("DELETE FROM parts WHERE film_code=$1", code)
+        elif part_id:
+            await conn.execute("DELETE FROM parts WHERE id=$1", part_id)
+
+# -------------------------
+# Parts
+# -------------------------
+async def add_part(film_code: str, title: str, description: str, video: str):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO parts (film_code, title, description, video) VALUES ($1, $2, $3, $4)",
+            film_code, title, description, video
+        )
+
+async def get_parts(code: str):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM parts WHERE film_code=$1", code)
+        return [dict(r) for r in rows]
+
+async def db_get_part_by_id(part_id: int):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM parts WHERE id=$1", part_id)
+        return dict(row) if row else None
+
+async def increase_views(part_id: int):
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE parts SET views = views + 1 WHERE id=$1", part_id)
 
 async def top_20_films_by_views():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("""
-        SELECT f.title, SUM(p.views) as total_views
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+        SELECT f.title, COALESCE(SUM(p.views),0) as total_views
         FROM films f
         LEFT JOIN parts p ON f.code = p.film_code
-        GROUP BY f.code
+        GROUP BY f.code, f.title
         ORDER BY total_views DESC
         LIMIT 20
         """)
-        rows = await cur.fetchall()
-        # title, views (views None bo'lsa 0 qilib beramiz)
-        return [(r[0], r[1] if r[1] is not None else 0) for r in rows]
+        return [(r["title"], r["total_views"]) for r in rows]
 
-
-async def delete_film(code: str = None, part_id: int = None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        if code:
-            # butun filmni o‘chirish
-            await db.execute("DELETE FROM films WHERE code = ?", (code,))
-            await db.execute("DELETE FROM parts WHERE film_code = ?", (code,))
-        elif part_id:
-            # faqat bitta qismni o‘chirish
-            await db.execute("DELETE FROM parts WHERE id = ?", (part_id,))
-        await db.commit()
-
-
-
-async def add_part(film_code: str, title: str, description: str, video: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO parts (film_code, title, description, video) VALUES (?, ?, ?, ?)",
-            (film_code, title, description, video)
-        )
-        await db.commit()
-
-async def get_parts(code: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT * FROM parts WHERE film_code = ?", (code,))
-        rows = await cur.fetchall()
-        return [dict(zip([c[0] for c in cur.description], r)) for r in rows]
-
-async def db_get_part_by_id(part_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT * FROM parts WHERE id = ?", (part_id,))
-        row = await cur.fetchone()
-        return dict(zip([c[0] for c in cur.description], row)) if row else None
-
-async def increase_views(part_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE parts SET views = views + 1 WHERE id = ?", (part_id,))
-        await db.commit()
-
-
-
-# ===== Channels =====
+# -------------------------
+# Channels
+# -------------------------
 async def channels_list():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT * FROM channels")
-        rows = await cur.fetchall()
-        return [dict(zip([c[0] for c in cur.description], r)) for r in rows]
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM channels")
+        return [dict(r) for r in rows]
 
 async def add_channel(ident: str, title: str = None, is_private: bool = False):
-    """
-    Kanal qo'shish:
-    - ident: '@username' yoki kanal ID (majburiy, bo'sh bo'lishi mumkin emas)
-    - title: kanal nomi (agar berilmasa ident ishlatiladi)
-    - is_private: True bo'lsa private kanal sifatida saqlanadi
-    """
-    if not ident or not ident.strip():
-        raise ValueError("Kanal identifikatori bo'sh bo'lishi mumkin emas")
-
-    ident = ident.strip()
-    if not title:
-        title = ident
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO channels (id_or_username, title, is_private) VALUES (?, ?, ?)",
-            (ident, title, int(is_private))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO channels (id_or_username, title, is_private) VALUES ($1, $2, $3)",
+            ident.strip(), title or ident.strip(), is_private
         )
-        await db.commit()
-
 
 async def remove_channel(idx: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM channels WHERE id = ?", (idx,))
-        await db.commit()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM channels WHERE id=$1", idx)
 
-# ===== Statistikalar =====
-async def get_user_join_dates_stats():
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Bugun qo‘shilganlar
-        cur = await db.execute(
-            "SELECT COUNT(*) FROM users WHERE date(joined_at) = date('now')"
-        )
-        today = (await cur.fetchone())[0]
-
-        # Oxirgi 7 kun
-        cur = await db.execute(
-            "SELECT COUNT(*) FROM users WHERE joined_at >= datetime('now','-7 days')"
-        )
-        week = (await cur.fetchone())[0]
-
-        # Oxirgi 30 kun
-        cur = await db.execute(
-            "SELECT COUNT(*) FROM users WHERE joined_at >= datetime('now','-30 days')"
-        )
-        month = (await cur.fetchone())[0]
-
-        return today, week, month
-
-
-async def get_daily_views_stats():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("""
-        SELECT date(joined_at) as d, COUNT(*) as v
-        FROM users
-        GROUP BY date(joined_at)
-        ORDER BY d DESC
-        LIMIT 10
-        """)
-        return await cur.fetchall()
-
-# ===== Broadcast jobs =====
-async def save_broadcast_job(admin_id: int, total: int, sent: int, fail: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO broadcast_jobs (admin_id, total_users, sent, failed) VALUES (?, ?, ?, ?)",
-            (admin_id, total, sent, fail)
-        )
-        await db.commit()
-
-# ===== Admins =====
+# -------------------------
+# Admins
+# -------------------------
 async def add_admin(admin_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT OR IGNORE INTO admins (admin_id) VALUES (?)", (admin_id,))
-        await db.commit()
+    async with pool.acquire() as conn:
+        await conn.execute("INSERT INTO admins (admin_id) VALUES ($1) ON CONFLICT DO NOTHING", admin_id)
 
 async def set_admin_permissions(admin_id: int, perms: set):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE admins SET permissions = ? WHERE admin_id = ?", (",".join(perms), admin_id))
-        await db.commit()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE admins SET permissions=$1 WHERE admin_id=$2", ",".join(perms), admin_id)
 
 async def get_admin_permissions(admin_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT permissions FROM admins WHERE admin_id = ?", (admin_id,))
-        row = await cur.fetchone()
-        if row and row[0]:
-            return set(row[0].split(","))
-        return set()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT permissions FROM admins WHERE admin_id=$1", admin_id)
+        return set(row["permissions"].split(",")) if row and row["permissions"] else set()
+
+# -------------------------
+# Broadcast jobs
+# -------------------------
+async def save_broadcast_job(admin_id: int, total: int, sent: int, fail: int):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO broadcast_jobs (admin_id, total_users, sent, failed) VALUES ($1, $2, $3, $4)",
+            admin_id, total, sent, fail
+        )
