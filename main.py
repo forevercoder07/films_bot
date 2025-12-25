@@ -147,7 +147,7 @@ async def user_search(msg: Message, state: FSMContext):
     await ensure_user_registered(msg)
     if not await check_channels_gate_for_message(msg):
         return
-    await msg.answer("Iltimos, kino kodini kiriting (masalan: GOT yoki LOTR_1):")
+    await msg.answer("Iltimos, kino kodini kiriting:")
     await state.set_state(SearchStates.waiting_code)
 
 
@@ -215,7 +215,7 @@ async def user_top20(msg: Message):
 
 @dp.message(lambda m: m.text and m.text.strip().lower() == "adminga murojat")
 async def contact_admin(msg: Message):
-    await msg.answer("Adminga murojat uchun quyidagi havolaga bosing:\nhttps://t.me/kinovibe¬films_deb")
+    await msg.answer("Adminga murojat uchun quyidagi havolaga bosing:\nhttps://t.me/kino_vibe_films")
 
 
 # /admin command: only admins see admin menu
