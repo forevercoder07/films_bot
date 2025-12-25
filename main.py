@@ -625,6 +625,16 @@ if __name__ == "__main__":
         asyncio.run(run_polling())
     else:
         logger.info(f"[INFO] Running in WEBHOOK mode on port {PORT}, path={WEBHOOK_PATH}")
-        loop = asyncio.get_event_loop()
-        app = loop.run_until_complete(start_webhook_app())
-        web.run_app(app, port=PORT)
+
+        async def main():
+            app = await start_webhook_app()
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+            await site.start()
+    
+            # app doim ishlashi uchun
+            await asyncio.Event().wait()
+    
+        asyncio.run(main())
+
