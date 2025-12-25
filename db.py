@@ -205,6 +205,12 @@ async def get_admin_permissions(admin_id: int):
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT permissions FROM admins WHERE admin_id=$1", admin_id)
         return set(row["permissions"].split(",")) if row and row["permissions"] else set()
+        
+async def get_all_admins():
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT admin_id FROM admins")
+        return [r["admin_id"] for r in rows]
+
 
 # -------------------------
 # Broadcast jobs
