@@ -43,7 +43,7 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-        # Parts
+        # Parts (video = Telegram file_id yoki URL saqlanadi)
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS parts (
             id SERIAL PRIMARY KEY,
