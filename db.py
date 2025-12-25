@@ -1,6 +1,8 @@
 import os
 import asyncpg
 from dotenv import load_dotenv
+from datetime import date, timedelta
+
 
 load_dotenv()
 
