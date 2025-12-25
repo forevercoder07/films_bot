@@ -7,3 +7,6 @@ aiosqlite==0.20.0
 
 # Optional, lekin Render’da barqarorlik uchun foydali
 async-timeout==4.0.3
+aiogram==3.1.1
+asyncpg
+python-dotenv==1.0.0
