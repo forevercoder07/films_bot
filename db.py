@@ -213,3 +213,27 @@ async def save_broadcast_job(admin_id: int, total: int, sent: int, fail: int):
             "INSERT INTO broadcast_jobs (admin_id, total_users, sent, failed) VALUES ($1, $2, $3, $4)",
             admin_id, total, sent, fail
         )
+
+# Statistics
+async def get_user_join_dates_stats():
+    async with pool.acquire() as conn:
+        today = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE DATE(joined_at) = CURRENT_DATE"
+        )
+        week = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE joined_at >= CURRENT_DATE - INTERVAL '7 days'"
+        )
+        month = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE joined_at >= CURRENT_DATE - INTERVAL '30 days'"
+        )
+        return today, week, month
+
+async def get_daily_views_stats(days: int = 7):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+        SELECT DATE(created_at) as d, COUNT(*) as v
+        FROM films
+        WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY d ORDER BY d DESC
+        """)
+        return [(r["d"], r["v"]) for r in rows]
