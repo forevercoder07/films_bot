@@ -178,10 +178,35 @@ async def handle_search_code(msg: Message, state: FSMContext):
 # -------------------------
 # Qism tanlash handler (state saqlanadi)
 # -------------------------
+# @dp.callback_query(SearchStates.waiting_part_selection)
+# async def handle_part_select(cb: CallbackQuery, state: FSMContext):
+#     data = await state.get_data()
+#     code = data.get("code")  # film kodi state’da saqlanadi
+
+#     try:
+#         part_id = int(cb.data.split(":")[-1])
+#     except Exception:
+#         await cb.answer("Noto'g'ri tugma ma'lumotlari", show_alert=True)
+#         return
+
+#     part = await db_get_part_by_id(part_id)
+#     if not part or part["film_code"] != code:
+#         await cb.answer("Qism topilmadi yoki kod mos emas", show_alert=True)
+#         return
+
+#     await increase_views(part_id)
+#     await cb.message.answer_video(
+#         video=part["video"],
+#         caption=f"{code} — {part.get('title', f'{part_id}-qism')}"
+#     )
+
+#     # State’ni tozalamaymiz — foydalanuvchi navbatdagi qismlarni ham tanlay oladi
+#     await cb.answer()
+
 @dp.callback_query(SearchStates.waiting_part_selection)
 async def handle_part_select(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    code = data.get("code")  # film kodi state’da saqlanadi
+    code = data.get("code")
 
     try:
         part_id = int(cb.data.split(":")[-1])
@@ -196,12 +221,11 @@ async def handle_part_select(cb: CallbackQuery, state: FSMContext):
 
     await increase_views(part_id)
     await cb.message.answer_video(
-        video=part["video"],
+        video=part["video"],   # bu file_id
         caption=f"{code} — {part.get('title', f'{part_id}-qism')}"
     )
-
-    # State’ni tozalamaymiz — foydalanuvchi navbatdagi qismlarni ham tanlay oladi
     await cb.answer()
+
 
 
 @dp.message(lambda m: m.text and m.text.strip().lower() == "kinolar statistikasi")
@@ -323,18 +347,35 @@ async def admin_add_film_part_title(msg: Message, state: FSMContext):
     await msg.answer("Endi qism videosini yuboring (yoki URL kiriting).")
     await state.set_state(AddPart.video)
 
+# @dp.message(AddPart.video)
+# async def admin_add_film_part_video(msg: Message, state: FSMContext):
+#     data = await state.get_data()
+#     code = data.get("code")
+#     title = data.get("title")
+#     if msg.video:
+#         video_id = msg.video.file_id
+#     else:
+#         video_id = msg.text.strip()
+#     await add_part(film_code=code, title=title, description="", video=video_id)
+#     await msg.answer("Qism qo‘shildi ✅")
+#     await state.clear()
+
 @dp.message(AddPart.video)
 async def admin_add_film_part_video(msg: Message, state: FSMContext):
     data = await state.get_data()
     code = data.get("code")
     title = data.get("title")
+
+    # Faylni serverga yozmaymiz, faqat file_id saqlaymiz
     if msg.video:
         video_id = msg.video.file_id
     else:
         video_id = msg.text.strip()
+
     await add_part(film_code=code, title=title, description="", video=video_id)
     await msg.answer("Qism qo‘shildi ✅")
     await state.clear()
+
 
 
 
