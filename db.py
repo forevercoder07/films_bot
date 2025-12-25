@@ -1,8 +1,6 @@
 import os
 import asyncpg
 from dotenv import load_dotenv
-from datetime import date, timedelta
-
 
 load_dotenv()
 
@@ -12,19 +10,25 @@ DB_NAME = os.getenv("DB_NAME", "films_db")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
-pool = None
+pool: asyncpg.pool.Pool | None = None
+
 
 # -------------------------
 # Init DB
 # -------------------------
 async def init_db():
+    """
+    Create asyncpg pool and ensure all tables exist.
+    """
     global pool
     pool = await asyncpg.create_pool(
         host=DB_HOST,
         port=DB_PORT,
         user=DB_USER,
         password=DB_PASSWORD,
-        database=DB_NAME
+        database=DB_NAME,
+        min_size=1,
+        max_size=10,
     )
     async with pool.acquire() as conn:
         # Users
@@ -35,7 +39,8 @@ async def init_db():
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-        # Films
+
+        # Films (description ustuni mavjud — UndefinedColumnError ni yo‘q qiladi)
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS films (
             id SERIAL PRIMARY KEY,
@@ -45,6 +50,7 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
         # Parts (video = Telegram file_id yoki URL saqlanadi)
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS parts (
@@ -56,6 +62,7 @@ async def init_db():
             views INTEGER DEFAULT 0
         )
         """)
+
         # Channels
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS channels (
@@ -65,6 +72,7 @@ async def init_db():
             is_private BOOLEAN DEFAULT FALSE
         )
         """)
+
         # Admins
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS admins (
@@ -73,6 +81,7 @@ async def init_db():
             permissions TEXT
         )
         """)
+
         # Broadcast jobs
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS broadcast_jobs (
@@ -84,6 +93,7 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
 
 # -------------------------
 # Users
@@ -105,6 +115,7 @@ async def get_all_user_ids():
         rows = await conn.fetch("SELECT user_id FROM users")
         return [r["user_id"] for r in rows]
 
+
 # -------------------------
 # Films
 # -------------------------
@@ -117,13 +128,19 @@ async def add_film(code: str, title: str, description: str = ""):
 
 async def get_film(code: str):
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT code, title FROM films WHERE code=$1", code)
+        row = await conn.fetchrow(
+            "SELECT code, title, description FROM films WHERE code=$1",
+            code
+        )
         return dict(row) if row else None
 
 async def list_films_paginated(page: int, page_size: int):
     offset = (page - 1) * page_size
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT code, title FROM films ORDER BY id DESC LIMIT $1 OFFSET $2", page_size, offset)
+        rows = await conn.fetch(
+            "SELECT code, title FROM films ORDER BY id DESC LIMIT $1 OFFSET $2",
+            page_size, offset
+        )
         total = await conn.fetchval("SELECT COUNT(*) FROM films")
         return [dict(r) for r in rows], total
 
@@ -134,6 +151,7 @@ async def delete_film(code: str = None, part_id: int = None):
             await conn.execute("DELETE FROM parts WHERE film_code=$1", code)
         elif part_id:
             await conn.execute("DELETE FROM parts WHERE id=$1", part_id)
+
 
 # -------------------------
 # Parts
@@ -171,6 +189,7 @@ async def top_20_films_by_views():
         """)
         return [(r["title"], r["total_views"]) for r in rows]
 
+
 # -------------------------
 # Channels
 # -------------------------
@@ -190,25 +209,35 @@ async def remove_channel(idx: int):
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM channels WHERE id=$1", idx)
 
+
 # -------------------------
 # Admins
 # -------------------------
 async def add_admin(admin_id: int):
     async with pool.acquire() as conn:
-        await conn.execute("INSERT INTO admins (admin_id) VALUES ($1) ON CONFLICT DO NOTHING", admin_id)
+        await conn.execute(
+            "INSERT INTO admins (admin_id) VALUES ($1) ON CONFLICT DO NOTHING",
+            admin_id
+        )
 
 async def set_admin_permissions(admin_id: int, perms: set):
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE admins SET permissions=$1 WHERE admin_id=$2", ",".join(perms), admin_id)
+        await conn.execute(
+            "UPDATE admins SET permissions=$1 WHERE admin_id=$2",
+            ",".join(perms), admin_id
+        )
 
 async def get_admin_permissions(admin_id: int):
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT permissions FROM admins WHERE admin_id=$1", admin_id)
+        row = await conn.fetchrow(
+            "SELECT permissions FROM admins WHERE admin_id=$1",
+            admin_id
+        )
         return set(row["permissions"].split(",")) if row and row["permissions"] else set()
-        
+
 async def get_all_admins():
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT admin_id FROM admins")
+        rows = await conn.fetch("SELECT admin_id FROM admins ORDER BY admin_id ASC")
         return [r["admin_id"] for r in rows]
 
 
@@ -222,7 +251,10 @@ async def save_broadcast_job(admin_id: int, total: int, sent: int, fail: int):
             admin_id, total, sent, fail
         )
 
+
+# -------------------------
 # Statistics
+# -------------------------
 async def get_user_join_dates_stats():
     async with pool.acquire() as conn:
         today = await conn.fetchval(
