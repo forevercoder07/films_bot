@@ -61,8 +61,10 @@ async def telegram_webhook(request: Request):
 
 # Render health-check uchun root endpoint
 @app.get("/")
+@app.head("/")
 async def root():
     return {"status": "ok"}
+
 
 # Qo‘shimcha health endpoint
 @app.get("/health")
