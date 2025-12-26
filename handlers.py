@@ -3,6 +3,7 @@ from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from config import get_settings
 
 from keyboards import user_menu, admin_menu, parts_menu, pagination_menu, channels_inline
 from db import (
@@ -50,18 +51,27 @@ class AddAdminState(StatesGroup):
 class FilmStatState(StatesGroup):
     page = State()
 
-async def show_user_menu(m: types.Message):
-    await m.answer("Asosiy bo‘lim:", reply_markup=user_menu())
+settings = get_settings()
 
-async def show_admin_menu(m: types.Message, tg_id: int):
+# Foydalanuvchi uchun /start
+async def show_user_menu(message: types.Message):
+    await message.answer("Asosiy bo'lim:", reply_markup=user_menu())
+
+# Admin uchun /start
+async def show_admin_menu(message: types.Message):
+    tg_id = message.from_user.id
+
     if await is_owner(tg_id):
-        await m.answer("Admin menyu:", reply_markup=admin_menu())
+        await message.answer("Admin menyu:", reply_markup=admin_menu())
         return
+
     adm = await get_admin(tg_id)
     if not adm:
-        await m.answer("Sizda admin huquqlari yo‘q.", reply_markup=user_menu())
+        await message.answer("Sizda admin huquqlari yo'q.", reply_markup=user_menu())
         return
-    await m.answer("Admin menyu: ruxsat berilgan tugmalardan foydalaning.", reply_markup=admin_menu())
+
+    await message.answer("Admin menyu: ruxsat berilgan tugmalardan foydalaning.", reply_markup=admin_menu())
+
 
 async def need_join_channels(message: types.Message) -> bool:
     channels = await list_channels()
