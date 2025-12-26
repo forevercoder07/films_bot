@@ -1,41 +1,51 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from typing import List
 
-# User keyboards
-def parts_keyboard(parts: list[int]) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=f"Qism {p}", callback_data=f"part:{p}")] for p in parts]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-def channels_check_kb(items: list[tuple[int, str, str | None]]):
-    rows = []
-    for idx, (_, title, invite) in enumerate(items, start=1):
-        btn_text = f"{idx}. {title}"
-        url = invite if invite else "https://t.me/"
-        rows.append([InlineKeyboardButton(text=btn_text, url=url)])
-    rows.append([InlineKeyboardButton(text="Tekshirish", callback_data="channels:check")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-# Admin keyboards
-def admin_menu_kb():
-    rows = [
-        [InlineKeyboardButton(text="Add film", callback_data="admin:add_film")],
-        [InlineKeyboardButton(text="Delete film", callback_data="admin:del_film")],
-        [InlineKeyboardButton(text="Channels", callback_data="admin:channels")],
-        [InlineKeyboardButton(text="User Statistic", callback_data="admin:user_stat")],
-        [InlineKeyboardButton(text="Film Statistic", callback_data="admin:film_stat")],
-        [InlineKeyboardButton(text="All write", callback_data="admin:all_write")],
-        [InlineKeyboardButton(text="Add admin", callback_data="admin:add_admin")],
-        [InlineKeyboardButton(text="Admin statistic", callback_data="admin:admin_stat")],
+def user_menu() -> ReplyKeyboardMarkup:
+    kb = [
+        [KeyboardButton(text="Kino qidirish")],
+        [KeyboardButton(text="Kinolar statistikasi")],
+        [KeyboardButton(text="Adminga murojat")],
     ]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, input_field_placeholder="Tanlang")
 
-def permission_select_kb():
-    opts = ["add_film","del_film","channels","user_stat","film_stat","all_write","add_admin","admin_stat"]
-    rows = [[InlineKeyboardButton(text=o, callback_data=f"perm:{o}")] for o in opts]
-    rows.append([InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="perm:done")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def admin_menu() -> ReplyKeyboardMarkup:
+    kb = [
+        [KeyboardButton(text="Add film"), KeyboardButton(text="Add parts")],
+        [KeyboardButton(text="Delete film"), KeyboardButton(text="Channels")],
+        [KeyboardButton(text="User Statistic"), KeyboardButton(text="Film Statistic")],
+        [KeyboardButton(text="All write"), KeyboardButton(text="Add admin")],
+        [KeyboardButton(text="Admin statistic"), KeyboardButton(text="Main menu")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, input_field_placeholder="Admin menyu")
 
-def channels_admin_kb(items: list[tuple[int, str]]):
-    rows = [[InlineKeyboardButton(text=f"❌ O‘chirish: {title}", callback_data=f"chan:del:{rid}")]
-            for rid, title in items]
-    rows.append([InlineKeyboardButton(text="➕ Kanal qo‘shish", callback_data="chan:add")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def parts_menu(parts_names: List[str], include_main: bool = True) -> ReplyKeyboardMarkup:
+    rows = []
+    if include_main:
+        rows.append([KeyboardButton(text="Asosiy video")])
+    row = []
+    for name in parts_names:
+        row.append(KeyboardButton(text=name))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([KeyboardButton(text="Asosiy bo‘lim")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, input_field_placeholder="Qismni tanlang")
+
+def pagination_menu() -> ReplyKeyboardMarkup:
+    kb = [
+        [KeyboardButton(text="Oldingi"), KeyboardButton(text="Keyingi")],
+        [KeyboardButton(text="Asosiy bo‘lim")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
+def channels_inline(ch_list: List[tuple]) -> InlineKeyboardMarkup:
+    # ch_list: [(order, title, link)]
+    buttons = []
+    for order, title, link in ch_list:
+        text = f"{order}. {title}"
+        buttons.append([InlineKeyboardButton(text=text, url=link)])
+    buttons.append([InlineKeyboardButton(text="Tekshirish", callback_data="check_subs")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
