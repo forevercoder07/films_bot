@@ -35,10 +35,14 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     try:
+        # Webhookni o‘chirib qo‘yish
         await bot.delete_webhook(drop_pending_updates=False)
     except Exception as e:
         logging.warning(f"Webhook delete failed: {e}")
+    # Aiogram ichki sessionini yopish
+    await bot.session.close()
     logging.info("Server stopped.")
+
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
