@@ -1,18 +1,22 @@
 import logging
 from logging.handlers import RotatingFileHandler
-import os
-from config import LOG_LEVEL
 
-os.makedirs("logs", exist_ok=True)
+def setup_logging(log_file: str) -> None:
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
 
-logger = logging.getLogger("kino_bot")
-logger.setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+    fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-fh = RotatingFileHandler("logs/bot.log", maxBytes=2_000_000, backupCount=5, encoding="utf-8")
-fh.setFormatter(fmt)
-ch = logging.StreamHandler()
-ch.setFormatter(fmt)
+    fh = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
 
-logger.addHandler(fh)
-logger.addHandler(ch)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+
+    logging.getLogger("aiogram").setLevel(logging.INFO)
+    logging.info("Logging initialized.")
