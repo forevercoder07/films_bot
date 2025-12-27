@@ -189,9 +189,10 @@ async def search_choose_part(message: types.Message, state: FSMContext):
 async def admin_entry(message: types.Message):
     tg_id = message.from_user.id
     if await is_owner(tg_id) or (await get_admin(tg_id)):
-        await show_admin_menu(message, tg_id)
+        await show_admin_menu(message)   # ❌ tg_id ni uzatma, faqat message
     else:
         await message.answer("Admin menyuga kirish taqiqlangan.", reply_markup=user_menu())
+
 
 @admin_router.message(F.text == "Main menu")
 async def admin_main_menu(message: types.Message, state: FSMContext):
